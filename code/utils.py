@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import requests
 import re
 
@@ -54,7 +57,7 @@ def _plaintext(string):
     s = strip_element(s, "div", "class=\"magnify")        # Thumbnails.
     s = strip_element(s, "div", "class=\"thumb ")         # Thumbnail captions.
     s = strip_element(s, "div", "class=\"barbox")         # Bar charts.
-    s = strip_element(s, "div", "class=\"mw-headline")         # Bar charts.
+    s = strip_element(s, "div", "class=\"mw-headline")    # Bar charts.
     s = strip_element(s, "div", "class=\"noprint")        # Hidden from print.
     s = strip_element(s, "sup", "class=\"noprint")
     # Strip absolute elements (don't know their position).
