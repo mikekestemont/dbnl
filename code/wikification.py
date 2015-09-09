@@ -65,12 +65,12 @@ class Wikifier(object):
                                 '\t+ nb pages download: %d' % len(self.page_ids))
 
             self.page_ids = sorted(self.page_ids)
-            pickle.dump(
-                self.page_ids, open(os.path.join(self.workspace, filename), 'wb'))
+            with open(os.path.join(self.workspace, filename), 'wb') as out:
+                pickle.dump(self.page_ids, out)
 
         else:
-            self.page_ids = pickle.load(
-                open(os.path.join(self.workspace, filename), 'rb'))
+            with open(os.path.join(self.workspace, filename), 'rb') as inf:
+                self.page_ids = pickle.load(inf)
 
         logging.info('\t+ set %d page_ids.' % len(self.page_ids))
 
@@ -111,12 +111,12 @@ class Wikifier(object):
             # remove pages without relevant backlinks
             self.backlinks = {k: v for k, v in self.backlinks.items() if v}
             # dump for later reuse
-            pickle.dump(
-                self.backlinks, open(os.path.join(self.workspace, filename), 'wb'))
+            with open(os.path.join(self.workspace, filename), 'wb') as out:
+                pickle.dump(self.backlinks, out)
 
         else:
-            self.backlinks = pickle.load(
-                open(os.path.join(self.workspace, filename), 'rb'))
+            with open(os.path.join(self.workspace, filename), 'rb') as inf:
+                self.backlinks = pickle.load(inf)
 
         logging.info('\t+ loaded %d backlinks for %d pages' % (
             sum([len(v) for k, v in self.backlinks.items()]), len(self.backlinks)))
@@ -179,12 +179,13 @@ class Wikifier(object):
                     except:
                         continue
 
-            pickle.dump((target_ids, name_variants, left_contexts,
-                         right_contexts, page_counts), open(filename, 'wb'))
+            with open(os.path.join(self.workspace, filename), 'wb') as out:
+                pickle.dump((target_ids, name_variants, left_contexts,
+                             right_contexts, page_counts), out)
 
         else:
-            target_ids, name_variants, left_contexts, right_contexts, page_counts = \
-                pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
+            with open(os.path.join(self.workspace, filename), 'rb') as inf:
+                target_ids, name_variants, left_contexts, right_contexts, page_counts = pickle.load(inf)
 
         self.mentions = target_ids, name_variants, left_contexts, right_contexts, page_counts
 
@@ -409,13 +410,14 @@ class Wikifier(object):
             # concatenate sparse matrices for all feature types:
             X = hstack((variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
             # dump a tuple of all components
-            pickle.dump((X, y, label_encoder, variant_vectorizer, context_vectorizer,
-                         page_cnt_vectorizer), open(os.path.join(self.workspace, filename), 'wb'))
+            with open(os.path.join(self.workspace, filename), 'wb') as out:
+                pickle.dump((X, y, label_encoder, variant_vectorizer, context_vectorizer,
+                             page_cnt_vectorizer), out)
 
         else:
             logging.info('Loading vectorized mentions...')
-            X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer = pickle.load(
-                open(os.path.join(self.workspace, filename), 'rb'))
+            with open(os.path.join(self.workspace, filename), 'rb') as inf:
+                X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer = pickle.load(inf)
 
         self.X, self.y, self.label_encoder, self.variant_vectorizer, self.context_vectorizer, self.page_cnt_vectorizer = \
             X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer
@@ -545,12 +547,12 @@ class Wikifier(object):
                 if max_documents < 0:
                     break
 
-            pickle.dump(
-                self.nes2wikilinks, open(os.path.join(self.workspace, filename), 'wb'))
+            with open(os.path.join(self.workspace, filename), 'wb') as out:
+                pickle.dump(self.nes2wikilinks, out)
 
         else:
-            self.nes2wikilinks = pickle.load(
-                open(os.path.join(self.workspace, filename), 'rb'))
+            with open(os.path.join(self.workspace, filename), 'rb') as inf:
+                self.nes2wikilinks = pickle.load(inf)
 
     def disambiguate_nes(self, max_documents=1000, max_words_per_doc=1000, context_window_size=150,
                          input_dir='frog_periodicals', output_dir='wikified_periodicals'):
