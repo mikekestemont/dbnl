@@ -163,8 +163,7 @@ class Wikifier(object):
                             if not article.sections:
                                 section_sources = [article.source]
                             else:
-                                section_sources = [
-                                    section.source for section in article.sections]
+                                section_sources = [section.source for section in article.sections]
                             # loop over the section sources and extract all
                             # relevant mentions:
                             for section_source in section_sources:
@@ -187,8 +186,7 @@ class Wikifier(object):
             target_ids, name_variants, left_contexts, right_contexts, page_counts = \
                 pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
-        self.mentions = (
-            target_ids, name_variants, left_contexts, right_contexts, page_counts)
+        self.mentions = target_ids, name_variants, left_contexts, right_contexts, page_counts
 
     def featurize_section(self, formatted, page_cnt, context_window_size):
         """
@@ -409,8 +407,7 @@ class Wikifier(object):
             page_cnt_vectorizer = DictVectorizer()
             cnt_vecs = page_cnt_vectorizer.fit_transform(page_counts)
             # concatenate sparse matrices for all feature types:
-            X = hstack(
-                (variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
+            X = hstack((variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
             # dump a tuple of all components
             pickle.dump((X, y, label_encoder, variant_vectorizer, context_vectorizer,
                          page_cnt_vectorizer), open(os.path.join(self.workspace, filename), 'wb'))
@@ -526,10 +523,8 @@ class Wikifier(object):
                                             for link in article.links:
                                                 if link in self.page_ids:
                                                     if token not in self.nes2wikilinks:
-                                                        self.nes2wikilinks[
-                                                            token] = set()
-                                                    self.nes2wikilinks[
-                                                        token].add(link)
+                                                        self.nes2wikilinks[token] = set()
+                                                    self.nes2wikilinks[token].add(link)
                                         else:
                                             if article.title in self.page_ids:
                                                 self.nes2wikilinks[token] = set([article.title])
