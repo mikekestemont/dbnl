@@ -30,7 +30,7 @@ from utils import query, _plaintext, neural_model
 
 class Wikifier(object):
 
-    def __init__(self, relevant_categories=None):
+    def __init__(self, workspace=None, relevant_categories=None):
         """
         Intialize wikifier with the relevant categories you wish to extract.
         """
@@ -41,7 +41,7 @@ class Wikifier(object):
         else:
             self.relevant_categories = relevant_categories
         # make sure that we have a workspace where we can pickle:
-        self.workspace = tempfile.mkdtemp()
+        self.workspace = tempfile.mkdtemp() if workspace is None else workspace
 
     def relevant_page_ids(self, fresh=False, filename='relevant_page_ids.p'):
         """
