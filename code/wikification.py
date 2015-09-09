@@ -9,6 +9,7 @@ import codecs
 import glob
 import os
 import shutil
+import tempfile
 from collections import Counter
 from xml.dom import minidom
 from xml.dom.minidom import Node
@@ -40,11 +41,9 @@ class Wikifier(object):
         else:
             self.relevant_categories = relevant_categories
         # make sure that we have a workspace where we can pickle:
-        if not os.path.isdir('../workspace/'):
-            os.mkdir('../workspace')
+        self.workspace = tempfile.mkdtemp()
 
-
-    def relevant_page_ids(self, fresh=False, filename='../workspace/relevant_page_ids.p'):
+    def relevant_page_ids(self, fresh=False, filename='relevant_page_ids.p'):
         """
         Collect the wiki id's (page_ids) for all pages belonging to the self.relevant_categories
             * if fresh: fresh download from Wikipedia + pickled under filename
@@ -63,17 +62,17 @@ class Wikifier(object):
                             print('\t+ nb pages download:', len(self.page_ids))
 
             self.page_ids = sorted(self.page_ids)
-            pickle.dump(self.page_ids, open(filename, 'wb'))
+            pickle.dump(self.page_ids, open(os.path.join(self.workspace, filename), 'wb'))
 
         else:
-            self.page_ids = pickle.load(open(filename, 'rb'))
+            self.page_ids = pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
         print('\t+ set', len(self.page_ids), 'page_ids')
 
         return self.page_ids
 
 
-    def backlinking_pages(self, page_ids=None, ignore_categories=None, fresh=False, filename='../workspace/backlinks.p'):
+    def backlinking_pages(self, page_ids=None, ignore_categories=None, fresh=False, filename='backlinks.p'):
         """
         Sets a dict (backlinks), with for each page_id a set of the pages backlinking to it.
             * if fresh: fresh download + pickle under outfilename
@@ -103,15 +102,15 @@ class Wikifier(object):
                     print('\t+ collected', sum([len(v) for k,v in self.backlinks.items()]), 'backlinks for', idx+1, 'pages')
 
             self.backlinks = {k:v for k,v in self.backlinks.items() if v} # remove pages without relevant backlinks
-            pickle.dump(self.backlinks, open(filename, 'wb')) # dump for later reuse
+            pickle.dump(self.backlinks, open(os.path.join(self.workspace, filename), 'wb')) # dump for later reuse
 
         else:
-            self.backlinks = pickle.load(open(filename, 'rb'))
+            self.backlinks = pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
         print('\t+ loaded', sum([len(v) for k,v in self.backlinks.items()]), 'backlinks for', len(self.backlinks), 'pages')
 
 
-    def mentions_from_backlinks(self, backlinks={}, fresh=False, filename='../workspace/mentions.p', context_window_size=150):
+    def mentions_from_backlinks(self, backlinks={}, fresh=False, filename='mentions.p', context_window_size=150):
         """
         Mines backlinking pages for mentions of the page_ids in backlinks.
         Returns 5 tuples, with for each mention:
@@ -163,7 +162,7 @@ class Wikifier(object):
 
         else:
             target_ids, name_variants, left_contexts, right_contexts, page_counts = \
-                                                        pickle.load(open(filename, 'rb'))
+                                                        pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
         self.mentions = (target_ids, name_variants, left_contexts, right_contexts, page_counts)
 
@@ -331,7 +330,7 @@ class Wikifier(object):
         return winners
 
 
-    def vectorize_wiki_mentions(self, mentions=(), fresh=False, filename='../workspace/vectorization.p',
+    def vectorize_wiki_mentions(self, mentions=(), fresh=False, filename='vectorization.p',
                                 ngram_range=(4,4), max_features=3000):
         """
         Takes mentions, which is a tuple of equal-sized tuples, containing for each mention:
@@ -364,11 +363,11 @@ class Wikifier(object):
             # concatenate sparse matrices for all feature types:
             X = hstack((variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
             # dump a tuple of all components
-            pickle.dump((X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer), open(filename, 'wb'))
+            pickle.dump((X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer), open(os.path.join(self.workspace, filename), 'wb'))
 
         else:
             print('\t+ Loading vectorized mentions...')
-            X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer = pickle.load(open(filename, 'rb'))
+            X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer = pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
         self.X, self.y, self.label_encoder, self.variant_vectorizer, self.context_vectorizer, self.page_cnt_vectorizer = \
             X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer           
@@ -383,7 +382,7 @@ class Wikifier(object):
 
 
     def classifier(self, input_dim, output_dim, hidden_dim=1024, fresh=False,
-                   filename='../workspace/classifier.p', test=True, nb_epochs=100):
+                   filename='classifier.p', test=True, nb_epochs=100):
         """
         Trains a neural net on the vectorized data.
         """
@@ -421,10 +420,10 @@ class Wikifier(object):
                 # simply train on all data:
                 model.fit(X, y, show_accuracy=True, batch_size=100, nb_epoch=nb_epochs, validation_data=None, shuffle=True)
 
-            model.save_weights(filename, overwrite=True)
+            model.save_weights(ps.path.join(self.workspace, filename), overwrite=True)
 
         else:
-            model.load_weights(filename)
+            model.load_weights(os.path.join(self.workspace, filename))
 
         self.model = model
 
@@ -432,9 +431,9 @@ class Wikifier(object):
             return dev_acc, test_acc
 
 
-    def extract_unique_nes(self, input_dir='../workspace/frog_periodicals', fresh=False,
+    def extract_unique_nes(self, input_dir='frog_periodicals', fresh=False,
                             max_documents=None, max_words_per_doc=None,
-                            filename='../workspace/nes2wikilinks.p'):
+                            filename='nes2wikilinks.p'):
         """
         Extracts all unique entities in the frogged files under input_dir as a dict.
         Registers in this dict: which relevant wiki-pages the NE could refer to
@@ -487,14 +486,14 @@ class Wikifier(object):
                 if max_documents < 0:
                     break
 
-            pickle.dump(self.nes2wikilinks, open(filename, 'wb'))
+            pickle.dump(self.nes2wikilinks, open(os.path.join(self.workspace, filename), 'wb'))
 
         else:
-            self.nes2wikilinks = pickle.load(open(filename, 'rb'))
+            self.nes2wikilinks = pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
 
     def disambiguate_nes(self, max_documents=1000, max_words_per_doc=1000, context_window_size=150,
-                         input_dir='../workspace/frog_periodicals', output_dir='../workspace/wikified_periodicals'):
+                         input_dir='frog_periodicals', output_dir='wikified_periodicals'):
         """
         Loops over frogged files under input_dir.
         First extracts all non-ambiguous NEs, then attempts to disambiguate ambiguous NEs,
@@ -503,11 +502,11 @@ class Wikifier(object):
         print('Disambiguating named entities from', max_documents, 'documents!')
 
         # make sure that we have a fresh output dir:
-        if os.path.isdir(output_dir):
-            shutil.rmtree(output_dir)
-        os.mkdir(output_dir)
+        if os.path.isdir(os.path.join(self.workspace, output_dir)):
+            shutil.rmtree(os.path.join(self.workspace, output_dir))
+        os.mkdir(os.path.join(self.workspace, output_dir))
 
-        for filepath in glob.glob(input_dir+'/*.txt.out'):
+        for filepath in glob.glob(os.path.join(self.workspace, input_dir) + '/*.txt.out'):
             unambiguous_nes = Counter() # collect counts of unambiguous NEs
             formatted = '' # collect tokens in a tmp html format
 
@@ -521,15 +520,15 @@ class Wikifier(object):
                             # only one option, so unambiguous:
                             unambiguous_ne = tuple(self.nes2wikilinks[token])[0]
                             unambiguous_nes[unambiguous_ne] += 1
-                            formatted += '<author type="unambiguous" id="'+unambiguous_ne.replace(' ', '_')+'">'+token+'</author>'
+                            formatted += '<author type="unambiguous" id="' + unambiguous_ne.replace(' ', '_') + '">' + token + '</author>'
                             
                         elif token in self.nes2wikilinks:
-                            formatted += '<author type="ambiguous">'+token+'</author>'
+                            formatted += '<author type="ambiguous">' + token + '</author>'
 
                         else:
-                            formatted += token+' '    
+                            formatted += token + ' '    
                     else:
-                        formatted += token+' '
+                        formatted += token + ' '
 
                 except ValueError:
                     continue
@@ -547,7 +546,7 @@ class Wikifier(object):
                     print(token, '>', disambiguation)
 
             # second pass over the file; fill in slots in new file:
-            new_filename = output_dir + '/' + os.path.basename(filepath).replace('.txt.out', '.wikified')
+            new_filename = os.path.join(self.workspace, output_dir, os.path.basename(filepath).replace('.txt.out', '.wikified'))
             with codecs.open(new_filename, 'w', 'utf8') as wikified_file:
                 for line in codecs.open(filepath, 'r', 'utf8'):
                     try:
