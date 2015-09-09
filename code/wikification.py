@@ -3,7 +3,6 @@
 
 from __future__ import print_function
 
-import json
 import cPickle as pickle
 import re
 import codecs
@@ -16,10 +15,9 @@ from xml.dom.minidom import Node
 from operator import itemgetter
 
 from bs4 import BeautifulSoup
-import numpy as np
 from scipy.sparse import hstack
 
-from pattern.web import Wikipedia, strip_element, plaintext
+from pattern.web import Wikipedia, plaintext
 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer

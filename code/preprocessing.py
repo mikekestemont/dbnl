@@ -10,7 +10,6 @@ import re
 import shutil
 import codecs
 import subprocess
-from operator import itemgetter
 from collections import Counter
 
 from lxml import etree
