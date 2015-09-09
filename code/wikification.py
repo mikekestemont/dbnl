@@ -41,12 +41,7 @@ class Wikifier(object):
         """
         Intialize wikifier with the relevant categories you wish to extract.
         """
-        if relevant_categories == None:
-            self.relevant_categories = """Nederlands_schrijver Nederlands_dichter Vlaams_schrijver Vlaams_dichter Middelnederlands_schrijver
-                        Vlaams_dichter_(voor_1830) Vlaams_toneelschrijver Nederlands_toneelschrijver Vlaams_kinderboekenschrijver
-                        Nederlands_kinderboekenschrijver""".split()
-        else:
-            self.relevant_categories = relevant_categories
+        self.relevant_categories = relevant_categories
         # make sure that we have a workspace where we can pickle:
         self.workspace = tempfile.mkdtemp() if workspace is None else workspace
 
@@ -673,3 +668,11 @@ class Wikifier(object):
             # TO DO: this function should append the wikifier's output to the
             # original columns in the frog data for easy reuse.
         return
+
+class DBNLWikifier(Wikifier):
+    def __init__(self, workspace=None):
+        relevant_categories = """Nederlands_schrijver Nederlands_dichter Vlaams_schrijver Vlaams_dichter Middelnederlands_schrijver
+                        Vlaams_dichter_(voor_1830) Vlaams_toneelschrijver Nederlands_toneelschrijver Vlaams_kinderboekenschrijver
+                        Nederlands_kinderboekenschrijver""".split()
+        Wikifier.__init__(self, workspace=workspace, relevant_categories=relevant_categories)
+        
