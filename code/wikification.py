@@ -7,6 +7,7 @@ import cPickle as pickle
 import re
 import codecs
 import glob
+import logging
 import os
 import shutil
 import tempfile
@@ -26,6 +27,11 @@ from sklearn.feature_extraction import DictVectorizer
 from sklearn.cross_validation import train_test_split
 
 from utils import query, _plaintext, neural_model
+
+from keras.utils import np_utils
+
+
+logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.DEBUG)
 
 
 class Wikifier(object):
@@ -49,7 +55,7 @@ class Wikifier(object):
             * if fresh: fresh download from Wikipedia + pickled under filename
             * else: no download; page_ids loaded from pickle in filename
         """
-        print('>>> Getting page_ids from relevant categories')
+        logging.info('Getting page_ids from relevant categories.')
         self.page_ids = set()
 
         if fresh:
@@ -59,7 +65,7 @@ class Wikifier(object):
                         page_id = result['pages'][page]['title']
                         self.page_ids.add(page_id)
                         if len(self.page_ids)%1000 == 0:
-                            print('\t+ nb pages download:', len(self.page_ids))
+                            logging.info('\t+ nb pages download: %d' % len(self.page_ids))
 
             self.page_ids = sorted(self.page_ids)
             pickle.dump(self.page_ids, open(os.path.join(self.workspace, filename), 'wb'))
@@ -67,7 +73,7 @@ class Wikifier(object):
         else:
             self.page_ids = pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
-        print('\t+ set', len(self.page_ids), 'page_ids')
+        logging.info('\t+ set %d page_ids.' % len(self.page_ids))
 
         return self.page_ids
 
@@ -86,7 +92,7 @@ class Wikifier(object):
         if fresh:
             if not page_ids:
                 page_ids = self.page_ids
-            print('>>> Collecting backlinks for', len(page_ids), 'pages')
+            logging.info('Collecting backlinks for %d pages' % len(page_ids))
 
             if not ignore_categories:
                 ignore_categories = ('Gebruiker:', 'Lijst van', 'Portaal:', 'Overleg', 'Wikipedia:', 'Help:', 'Categorie:')
@@ -99,7 +105,8 @@ class Wikifier(object):
                         if not backlink.startswith(ignore_categories):
                             self.backlinks[page_id].add(backlink)
                 if idx % 10 == 0:
-                    print('\t+ collected', sum([len(v) for k,v in self.backlinks.items()]), 'backlinks for', idx+1, 'pages')
+                    logging.info('\t+ collected %d backlinks for %d pages' % (
+                        sum([len(v) for k,v in self.backlinks.items()]), idx+1))
 
             self.backlinks = {k:v for k,v in self.backlinks.items() if v} # remove pages without relevant backlinks
             pickle.dump(self.backlinks, open(os.path.join(self.workspace, filename), 'wb')) # dump for later reuse
@@ -107,7 +114,8 @@ class Wikifier(object):
         else:
             self.backlinks = pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
-        print('\t+ loaded', sum([len(v) for k,v in self.backlinks.items()]), 'backlinks for', len(self.backlinks), 'pages')
+        logging.info('\t+ loaded %d backlinks for %d pages' % (
+            sum([len(v) for k,v in self.backlinks.items()]), len(self.backlinks)))
 
 
     def mentions_from_backlinks(self, backlinks={}, fresh=False, filename='mentions.p', context_window_size=150):
@@ -127,18 +135,23 @@ class Wikifier(object):
         target_ids, name_variants, left_contexts, right_contexts, page_counts = [], [], [], [], []
 
         if fresh:
-            print('>>> Mining mentions from', sum([len(v) for k,v in backlinks.items()]),
-                  'backlinking pages to', len(backlinks), 'target pages')
+
+            logging.info('Mining mentions from %d baklinking pages to %d target pages.' % (
+                sum([len(v) for k,v in backlinks.items()]), len(backlinks)))
+
             print(backlinks)
             wikipedia = Wikipedia(language='nl', throttle=2)
 
             for idx, (page_id, links) in enumerate(backlinks.items()):
-                print('\t + mining mentions of', page_id, '('+str(len(links)), 'backlinks) | page', idx+1, '/', len(backlinks))
+
+                logging.debug('\t + mining mentions of %s (%s backlinks) | page %d / %d' % (
+                    page_id, len(links), idx+1, len(backlinks)))
+
                 for backlink in links:
                     try:
                         article = wikipedia.search(backlink) # fetch the linking page via pattern
                         if not article.categories[0] == 'Wikipedia:Doorverwijspagina': # skip referral pages
-                            print('\t\t* backlink:', backlink)
+                            logging.debug('\t\t* backlink: %s' % backlink)
                             section_sources = [] # fetch the html-sections of individual sections:
                             if not article.sections: # article doesn't have sections
                                 section_sources = [article.source]
@@ -321,7 +334,7 @@ class Wikifier(object):
             if options:
                 # rank scores for these labels and select the highest one as winner:
                 scores = prediction[self.label_encoder.transform(options)]
-                #print(sorted(zip(options, scores), key=itemgetter(1), reverse=True))
+                logging.debug(sorted(zip(options, scores), key=itemgetter(1), reverse=True))
                 winner = sorted(zip(options, scores), key=itemgetter(1), reverse=True)[0][0]
                 winner = winner.replace(' ', '_')
                 winners.append(winner)
@@ -342,7 +355,7 @@ class Wikifier(object):
         if fresh:
             if not mentions:
                 mentions = self.mentions
-            print('>>> Vectorizing', len(mentions[0]), 'mentions')
+            logging.info('Vectorizing %d mentions' % len(mentions[0]))
             # unpack incoming mention data:
             target_ids, name_variants, left_contexts, right_contexts, page_counts = mentions
             # vectorize labels:
@@ -366,13 +379,14 @@ class Wikifier(object):
             pickle.dump((X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer), open(os.path.join(self.workspace, filename), 'wb'))
 
         else:
-            print('\t+ Loading vectorized mentions...')
+            logging.info('Loading vectorized mentions...')
             X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer = pickle.load(open(os.path.join(self.workspace, filename), 'rb'))
 
         self.X, self.y, self.label_encoder, self.variant_vectorizer, self.context_vectorizer, self.page_cnt_vectorizer = \
             X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer           
 
-        print('>>> Vectorized data:', X.shape[0], 'instances;', X.shape[1], 'features;', len(label_encoder.classes_), 'class labels') 
+        logging.info('Vectorized data: %d instances; %d features; %d class labels' % (
+            X.shape[0], X.shape[1], len(label_encoder.classes_))) 
 
         # collect variables needed to build the model:
         input_dim = X.shape[1] # nb features
@@ -394,7 +408,8 @@ class Wikifier(object):
         if fresh:
             X, y = self.X, self.y
             X = X.toarray() # unsparsify for keras
-            print('>>> Applying classifier to', X.shape[0], 'instances;', X.shape[1], 'features;', output_dim, 'class labels') 
+
+            logging.info('Applying classifier to %d instances; %d features; %d class labels.' % (X.shape[0], X.shape[1], output_dim))
             
             # convert labels to correct format for cross-entropy loss in keras:
             y = np_utils.to_categorical(y)
@@ -408,19 +423,19 @@ class Wikifier(object):
                 model.fit(train_X, train_y, show_accuracy=True, batch_size=100, nb_epoch=nb_epochs, validation_data=(dev_X, dev_y), shuffle=True)
                 # test on dev:
                 dev_loss, dev_acc = model.evaluate(dev_X, dev_y, batch_size=100, show_accuracy=True, verbose=1)
-                print('>>> Dev evaluation:')
-                print('\t+ Test loss:', dev_loss)
-                print('\t+ Test accu:', dev_acc)
+                logging.info('>>> Dev evaluation:')
+                logging.info('\t+ Test loss:', dev_loss)
+                logging.info('\t+ Test accu:', dev_acc)
                 # test on test:
                 test_loss, test_acc = model.evaluate(test_X, test_y, batch_size=100, show_accuracy=True, verbose=1)
-                print('>>> Test evaluation:')
-                print('\t+ Test loss:', test_loss)
-                print('\t+ Test accu:', test_acc)
+                logging.info('>>> Test evaluation:')
+                logging.info('\t+ Test loss:', test_loss)
+                logging.info('\t+ Test accu:', test_acc)
             else:
                 # simply train on all data:
                 model.fit(X, y, show_accuracy=True, batch_size=100, nb_epoch=nb_epochs, validation_data=None, shuffle=True)
 
-            model.save_weights(ps.path.join(self.workspace, filename), overwrite=True)
+            model.save_weights(os.path.join(self.workspace, filename), overwrite=True)
 
         else:
             model.load_weights(os.path.join(self.workspace, filename))
@@ -445,7 +460,7 @@ class Wikifier(object):
             * tagged as B-PER by Frog
         """
         if fresh:
-            print('Extracting NEs from ', max_documents, 'documents!')
+            logging.info('Extracting NEs from ', max_documents, 'documents!')
             wikipedia = Wikipedia(language='nl', throttle=3)
             self.nes2wikilinks = {}
 
@@ -481,8 +496,8 @@ class Wikifier(object):
                 # update stats:
                 max_documents -= 1
                 if max_documents % 10 == 0:
-                    print('\t+ ', max_documents, 'documents to go')
-                    print('\t+ ', len(self.nes2wikilinks), 'NEs collected')
+                    logging.info('\t+ %d documents to go' % max_documents)
+                    logging.info('\t+ %d NEs collected' % len(self.nes2wikilinks))
                 if max_documents < 0:
                     break
 
@@ -499,7 +514,7 @@ class Wikifier(object):
         First extracts all non-ambiguous NEs, then attempts to disambiguate ambiguous NEs,
         on the basis of token, left and right context + the unambiguous NEs in the doc.
         """
-        print('Disambiguating named entities from', max_documents, 'documents!')
+        logging.info('Disambiguating named entities from %d documents!' % max_documents)
 
         # make sure that we have a fresh output dir:
         if os.path.isdir(os.path.join(self.workspace, output_dir)):
@@ -541,9 +556,9 @@ class Wikifier(object):
                 X = self.vectorize_dbnl_nes(mentions)
                 loc_target_labels, loc_name_variants, loc_left_contexts, loc_right_contexts, loc_page_counts = mentions
                 disambiguations = self.classify_nes(X, loc_name_variants)
-                print(len(disambiguations), 'disambiguations found')
+                logging.info('%d disambiguations found' % len(disambiguations))
                 for token, disambiguation in zip(loc_name_variants, disambiguations):
-                    print(token, '>', disambiguation)
+                    logging.debug("%s > %s" (token, disambiguation))
 
             # second pass over the file; fill in slots in new file:
             new_filename = os.path.join(self.workspace, output_dir, os.path.basename(filepath).replace('.txt.out', '.wikified'))
@@ -577,7 +592,7 @@ class Wikifier(object):
             # update stats:
             max_documents -= 1
             if max_documents % 100 == 0:
-                print('\t+', max_documents, 'documents to go')
+                logging.info('\t+ %d documents to go.' % max_documents)
             if max_documents <= 0:
                 break
 
