@@ -135,8 +135,7 @@ class Wikifier(object):
             backlinks = self.backlinks
 
         # intitialize data containers:
-        target_ids, name_variants, left_contexts, right_contexts, page_counts = [
-        ], [], [], [], []
+        target_ids, name_variants, left_contexts, right_contexts, page_counts = [], [], [], [], []
 
         if fresh:
 
@@ -197,8 +196,7 @@ class Wikifier(object):
         Returns tuples with for each author: target_id, name_variant, left_context, right_context, page_count
         Ignores author-elements that have an attribute type=unambiguous
         """
-        loc_target_labels, loc_name_variants, loc_left_contexts, loc_right_contexts, loc_page_counts = [
-        ], [], [], [], []
+        loc_target_labels, loc_name_variants, loc_left_contexts, loc_right_contexts, loc_page_counts = [], [], [], [], []
 
         # replace hyphens for date series such as "1940-1945" > "1940 1945"
         formatted = formatted.replace('-', ' ')
@@ -288,8 +286,7 @@ class Wikifier(object):
         Note that other mentions of relevant pages occuring in the context are
         included as written (i.e. not the normalized wiki-id).
         """
-        target_labels, name_variants, left_contexts, right_contexts, page_counts = [
-        ], [], [], [], []
+        target_labels, name_variants, left_contexts, right_contexts, page_counts = [], [], [], [], []
 
         # count other mentions of pages in self.page_ids in this section (for
         # global disambiguation):
@@ -349,8 +346,7 @@ class Wikifier(object):
         right_context_vecs = self.context_vectorizer.transform(right_contexts)
         cnt_vecs = self.page_cnt_vectorizer.transform(page_counts)
         # concatenate all matrices:
-        X = hstack(
-            (variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
+        X = hstack((variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
         return X  # still sparse!
 
     def classify_nes(self, X, original_tokens):
@@ -387,8 +383,7 @@ class Wikifier(object):
             target_ids, name_variants, left_contexts, right_contexts, page_counts
         Builds/loads a tuple of vectorizers and vectorized data.
         """
-        X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer = [
-        ], [], None, None, None, None
+        X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer = [], [], None, None, None, None
 
         if fresh:
             if not mentions:
@@ -537,8 +532,7 @@ class Wikifier(object):
                                                         token].add(link)
                                         else:
                                             if article.title in self.page_ids:
-                                                self.nes2wikilinks[token] = set(
-                                                    [article.title])
+                                                self.nes2wikilinks[token] = set([article.title])
                                 except:  # probably a download issue...
                                     continue
                         max_words -= 1
@@ -552,8 +546,7 @@ class Wikifier(object):
                 max_documents -= 1
                 if max_documents % 10 == 0:
                     logging.info('\t+ %d documents to go' % max_documents)
-                    logging.info('\t+ %d NEs collected' %
-                                 len(self.nes2wikilinks))
+                    logging.info('\t+ %d NEs collected' % len(self.nes2wikilinks))
                 if max_documents < 0:
                     break
 
@@ -595,12 +588,10 @@ class Wikifier(object):
                                 self.nes2wikilinks[token])[0]
                             unambiguous_nes[unambiguous_ne] += 1
                             formatted += '<author type="unambiguous" id="' + \
-                                unambiguous_ne.replace(
-                                    ' ', '_') + '">' + token + '</author>'
+                                unambiguous_ne.replace(' ', '_') + '">' + token + '</author>'
 
                         elif token in self.nes2wikilinks:
-                            formatted += '<author type="ambiguous">' + \
-                                token + '</author>'
+                            formatted += '<author type="ambiguous">' + token + '</author>'
 
                         else:
                             formatted += token + ' '
@@ -636,22 +627,18 @@ class Wikifier(object):
                             token = token.replace('_', ' ')
                             if token in self.nes2wikilinks and len(self.nes2wikilinks[token]) == 1:
                                 # only one option, so unambiguous:
-                                unambiguous_ne = tuple(
-                                    self.nes2wikilinks[token])[0]
-                                unambiguous_ne = unambiguous_ne.replace(
-                                    ' ', '_')
-                                comps = (
-                                    idx, token, lemma, pos, conf, ne, unambiguous_ne)
+                                unambiguous_ne = tuple(self.nes2wikilinks[token])[0]
+                                unambiguous_ne = unambiguous_ne.replace(' ', '_')
+                                comps = idx, token, lemma, pos, conf, ne, unambiguous_ne
 
                             elif token in self.nes2wikilinks:
                                 disambiguated_ne = disambiguations.pop(0)
-                                comps = (
-                                    idx, token, lemma, pos, conf, ne, disambiguated_ne)
+                                comps = idx, token, lemma, pos, conf, ne, disambiguated_ne
 
                             else:
-                                comps = (idx, token, lemma, pos, conf, ne, 'X')
+                                comps = idx, token, lemma, pos, conf, ne, 'X'
                         else:
-                            comps = (idx, token, lemma, pos, conf, ne, 'X')
+                            comps = idx, token, lemma, pos, conf, ne, 'X'
 
                     except ValueError:
                         continue
@@ -675,4 +662,3 @@ class DBNLWikifier(Wikifier):
                         Vlaams_dichter_(voor_1830) Vlaams_toneelschrijver Nederlands_toneelschrijver Vlaams_kinderboekenschrijver
                         Nederlands_kinderboekenschrijver""".split()
         Wikifier.__init__(self, workspace=workspace, relevant_categories=relevant_categories)
-        
