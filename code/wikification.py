@@ -25,8 +25,13 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.cross_validation import train_test_split
+from keras.utils import np_utils
 
 from utils import query, _plaintext, neural_model
+
+from sklearn import svm
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.externals import joblib
 
 
 class Wikifier(object):
@@ -240,7 +245,8 @@ class Wikifier(object):
                 loc_page_counts.append(page_cnt) # note that this cntr is the same for all mentions in the same section
             except AttributeError:
                 pass
-        if loc_name_variants:
+        if loc_name_variants and sum(len(loc_target_labels), len(loc_name_variants), len(loc_left_contexts), len(loc_right_contexts), len(loc_page_counts)) \
+                                        == 5*len(loc_target_labels):
             return loc_target_labels, loc_name_variants, loc_left_contexts, loc_right_contexts, loc_page_counts
         else:
             return None
@@ -327,6 +333,7 @@ class Wikifier(object):
                 #print(sorted(zip(options, scores), key=itemgetter(1), reverse=True))
                 winner = sorted(zip(options, scores), key=itemgetter(1), reverse=True)[0][0]
                 winner = winner.replace(' ', '_')
+                print(token, '>', winner, sorted(zip(options, scores), key=itemgetter(1), reverse=True)[0][1])
                 winners.append(winner)
             else:
                 winners.append('<unk>')
@@ -353,10 +360,10 @@ class Wikifier(object):
             target_ids = [t.replace('_', ' ') for t in target_ids]
             y = label_encoder.fit_transform(target_ids)
             # vectorize name variants:
-            variant_vectorizer = TfidfVectorizer(analyzer='char', ngram_range=ngram_range, lowercase=False, max_features=max_features)
+            variant_vectorizer = TfidfVectorizer(analyzer='char', ngram_range=ngram_range, lowercase=False, max_features=max_features, use_idf=False)
             variant_vecs = variant_vectorizer.fit_transform(name_variants)
             # vectorize (left and right) context;
-            context_vectorizer = TfidfVectorizer(analyzer='char', ngram_range=ngram_range, lowercase=False, max_features=max_features)
+            context_vectorizer = TfidfVectorizer(analyzer='char', ngram_range=ngram_range, lowercase=False, max_features=max_features, use_idf=False)
             context_vectorizer.fit(left_contexts+right_contexts)
             left_context_vecs = context_vectorizer.transform(left_contexts)
             right_context_vecs = context_vectorizer.transform(right_contexts)
@@ -364,7 +371,8 @@ class Wikifier(object):
             page_cnt_vectorizer = DictVectorizer()
             cnt_vecs = page_cnt_vectorizer.fit_transform(page_counts)
             # concatenate sparse matrices for all feature types:
-            X = hstack((variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
+            #X = hstack((variant_vecs, left_context_vecs, right_context_vecs, cnt_vecs))
+            X = hstack((variant_vecs, left_context_vecs, cnt_vecs))
             # dump a tuple of all components
             pickle.dump((X, y, label_encoder, variant_vectorizer, context_vectorizer, page_cnt_vectorizer), open(filename, 'wb'))
 
@@ -389,11 +397,11 @@ class Wikifier(object):
         """
         Trains a neural net on the vectorized data.
         """
-
         # define and compile model
         model = neural_model(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim)
         random_state = 1985
 
+        
         if fresh:
             X, y = self.X, self.y
             X = X.toarray() # unsparsify for keras
@@ -408,12 +416,12 @@ class Wikifier(object):
                 # train and dev split:
                 train_X, dev_X, train_y, dev_y = train_test_split(train_X, train_y, test_size=0.10, random_state=random_state)
                 # fit and validate:
-                model.fit(train_X, train_y, show_accuracy=True, batch_size=100, nb_epoch=nb_epochs, validation_data=(dev_X, dev_y), shuffle=True)
+                model.fit(train_X, train_y, show_accuracy=True, batch_size=25, nb_epoch=nb_epochs, validation_data=(dev_X, dev_y), shuffle=True)
                 # test on dev:
-                dev_loss, dev_acc = model.evaluate(dev_X, dev_y, batch_size=100, show_accuracy=True, verbose=1)
+                dev_loss, dev_acc = model.evaluate(dev_X, dev_y, batch_size=25, show_accuracy=True, verbose=1)
                 print('>>> Dev evaluation:')
-                print('\t+ Test loss:', dev_loss)
-                print('\t+ Test accu:', dev_acc)
+                print('\t+ Dev loss:', dev_loss)
+                print('\t+ Dev accu:', dev_acc)
                 # test on test:
                 test_loss, test_acc = model.evaluate(test_X, test_y, batch_size=100, show_accuracy=True, verbose=1)
                 print('>>> Test evaluation:')
@@ -449,7 +457,7 @@ class Wikifier(object):
         """
         if fresh:
             print('Extracting NEs from ', max_documents, 'documents!')
-            wikipedia = Wikipedia(language='nl', throttle=3)
+            wikipedia = Wikipedia(language='nl', throttle=0.5)
             self.nes2wikilinks = {}
 
             for filepath in glob.glob(input_dir+'/*.txt.out'):
@@ -509,6 +517,7 @@ class Wikifier(object):
             shutil.rmtree(output_dir)
         os.mkdir(output_dir)
 
+        nb_disambiguations_needed = 0
         for filepath in glob.glob(input_dir+'/*.txt.out'):
             unambiguous_nes = Counter() # collect counts of unambiguous NEs
             formatted = '' # collect tokens in a tmp html format
@@ -527,6 +536,7 @@ class Wikifier(object):
                             
                         elif token in self.nes2wikilinks:
                             formatted += '<author type="ambiguous">'+token+'</author>'
+                            nb_disambiguations_needed += 1
 
                         else:
                             formatted += token+' '    
@@ -540,13 +550,15 @@ class Wikifier(object):
             
             mentions = self.featurize_section(formatted=formatted, page_cnt=unambiguous_nes, context_window_size=context_window_size)
 
-            if mentions:
+            if mentions and len(mentions[0] == nb_disambiguations_needed):
                 X = self.vectorize_dbnl_nes(mentions)
                 loc_target_labels, loc_name_variants, loc_left_contexts, loc_right_contexts, loc_page_counts = mentions
                 disambiguations = self.classify_nes(X, loc_name_variants)
-                print(len(disambiguations), 'disambiguations found')
-                for token, disambiguation in zip(loc_name_variants, disambiguations):
-                    print(token, '>', disambiguation)
+                #print(len(disambiguations), 'disambiguations found')
+                #for token, disambiguation in zip(loc_name_variants, disambiguations):
+                #    print(token, '>', disambiguation)
+            else:
+                print('damn...')
 
             # second pass over the file; fill in slots in new file:
             new_filename = output_dir + '/' + os.path.basename(filepath).replace('.txt.out', '.wikified')
@@ -564,9 +576,11 @@ class Wikifier(object):
                                 comps = (idx, token, lemma, pos, conf, ne, unambiguous_ne)
                                 
                             elif token in self.nes2wikilinks:
-                                disambiguated_ne = disambiguations.pop(0)
-                                comps = (idx, token, lemma, pos, conf, ne, disambiguated_ne)
-
+                                try:
+                                    disambiguated_ne = disambiguations.pop(0)
+                                    comps = (idx, token, lemma, pos, conf, ne, disambiguated_ne)
+                                except IndexError:
+                                    comps = (idx, token, lemma, pos, conf, ne, 'X')
                             else:
                                 comps = (idx, token, lemma, pos, conf, ne, 'X')
                         else:
