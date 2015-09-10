@@ -8,7 +8,6 @@ from pattern.web import strip_element, plaintext
 
 from keras.models import Sequential
 from keras.layers.core import Dense, Activation, Dropout
-from keras.utils import np_utils
 
 def query(request):
     request['action'] = 'query'
