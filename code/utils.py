@@ -78,12 +78,12 @@ def _plaintext(string):
 def neural_model(input_dim, hidden_dim, output_dim):
     # define standard two-layer model, with dropout+relu:
     model = Sequential()
-    #model.add(Dense(input_dim=input_dim, output_dim=hidden_dim, init="uniform"))
-    #model.add(Activation("relu"))
-    #model.add(Dropout(0.5))
     model.add(Dense(input_dim=input_dim, output_dim=output_dim, init="uniform"))
     #model.add(Activation("relu"))
-    #model.add(Dropout(0.5))
+    #model.add(Dropout(0.25))
+    #model.add(Dense(input_dim=hidden_dim, output_dim=output_dim, init="uniform"))
+    #model.add(Activation("relu"))
+    #model.add(Dropout(0.25))
     model.add(Activation("softmax"))
     # compile model:
     model.compile(loss='categorical_crossentropy', optimizer='adadelta')
