@@ -3,7 +3,7 @@
 
 from __future__ import print_function
 
-import cPickle as pickle
+import pickle
 import re
 import codecs
 import glob
@@ -25,6 +25,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.cross_validation import train_test_split
+from sklearn.metrics import f1_score
 
 from utils import query, _plaintext, neural_model
 
@@ -115,7 +116,7 @@ class Wikifier(object):
             # dump for later reuse
             with open(os.path.join(self.workspace, filename), 'wb') as out:
                 pickle.dump(self.backlinks, out)
-
+        
         else:
             with open(os.path.join(self.workspace, filename), 'rb') as inf:
                 self.backlinks = pickle.load(inf)
@@ -370,7 +371,7 @@ class Wikifier(object):
                 #    sorted(zip(options, scores), key=itemgetter(1), reverse=True))
                 winner, score = sorted(
                     zip(options, scores), key=itemgetter(1), reverse=True)[0]
-                if score > 0.10:
+                if score > 0.80:
                     winner = winner.replace(' ', '_')
                     winners.append(winner)
                 else:
@@ -435,9 +436,10 @@ class Wikifier(object):
         input_dim = X.shape[1]  # nb features
         output_dim = len(label_encoder.classes_)  # nb labels
 
-        #labels = [self.label_encoder.inverse_transform(label) for label in self.y]
-        #label_cnt = Counter(labels)
-        #print(label_cnt)
+        labels = [self.label_encoder.inverse_transform(label) for label in self.y]
+        label_cnt = Counter(labels)
+        #for l in label_cnt.most_common(500):
+        #    print(l)
 
         return input_dim, output_dim
 
@@ -502,7 +504,7 @@ class Wikifier(object):
 
     def extract_unique_nes(self, input_dir='frog_periodicals', fresh=False,
                            max_documents=None, max_words_per_doc=None,
-                           filename='nes2wikilinks.p'):
+                           filename='nes2wikilinks.p', testfiles=[]):
         """
         Extracts all unique entities in the frogged files under input_dir as a dict.
         Registers in this dict: which relevant wiki-pages the NE could refer to
@@ -510,17 +512,21 @@ class Wikifier(object):
         Only considers NEs that are:
             * capitalized
             * have len > 3 (cf. 'Van')
-            * don't end in a dot (e.g. 'A.F.Th.')
+            * don't end in a full stop (e.g. 'A.F.Th.')
             * tagged as B-PER by Frog
         """
         if fresh:
-            logging.info('Extracting NEs from ', max_documents, 'documents!')
+            logging.info('Extracting NEs from documents!')
             wikipedia = Wikipedia(language='nl', throttle=3)
             self.nes2wikilinks = {}
 
-            for filepath in glob.glob(input_dir+'/*.txt.out'):
+            for filepath in glob.glob(os.sep.join((self.workspace, input_dir))+'/*.txt.out'):
+                if testfiles:
+                    fp = os.path.basename(filepath).replace('.txt.out', '')
+                    if fp not in testfiles:
+                        continue
                 max_words = max_words_per_doc
-                for line in codecs.open(filepath, 'r', 'utf8'):
+                for line in codecs.open(os.sep.join((self.workspace, filepath)), 'r', 'utf8'):
                     try:
                         comps = [c for c in line.strip().split('\t') if c]
                         idx, token, lemma, pos, conf, ne = comps
@@ -565,7 +571,7 @@ class Wikifier(object):
                 self.nes2wikilinks = pickle.load(inf)
 
     def disambiguate_nes(self, max_documents=1000, max_words_per_doc=1000, context_window_size=150,
-                         input_dir='frog_periodicals', output_dir='wikified_periodicals'):
+                         input_dir='frog_periodicals', output_dir='wikified_periodicals', testfiles=[]):
         """
         Loops over frogged files under input_dir.
         First extracts all non-ambiguous NEs, then attempts to disambiguate ambiguous NEs,
@@ -580,6 +586,10 @@ class Wikifier(object):
         os.mkdir(os.path.join(self.workspace, output_dir))
 
         for filepath in glob.glob(os.path.join(self.workspace, input_dir) + '/*.txt.out'):
+            if testfiles:
+                fp = os.path.basename(filepath).replace('.txt.out', '')
+                if fp not in testfiles:
+                    continue
             unambiguous_nes = Counter()  # collect counts of unambiguous NEs
             formatted = ''  # collect tokens in a tmp html format
 
@@ -639,11 +649,12 @@ class Wikifier(object):
                                 comps = idx, token, lemma, pos, conf, ne, unambiguous_ne
 
                             elif token in self.nes2wikilinks:
+                                comps = idx, token, lemma, pos, conf, ne, 'X'
                                 try:
                                     disambiguated_ne = disambiguations.pop(0)
                                     comps = idx, token, lemma, pos, conf, ne, disambiguated_ne
                                 except IndexError:
-                                    comps = idx, token, lemma, pos, conf, ne, 'X'    
+                                    comps = idx, token, lemma, pos, conf, ne, 'X'
 
                             else:
                                 comps = idx, token, lemma, pos, conf, ne, 'X'
@@ -662,6 +673,104 @@ class Wikifier(object):
             if max_documents <= 0:
                 break
         return
+
+    def naive_disambiguate_nes(self, max_documents=1000, max_words_per_doc=1000, context_window_size=150,
+                         input_dir='frog_periodicals', output_dir='wikified_periodicals', testfiles=[]):
+
+        logging.info(
+            'Disambiguating named entities from %d documents!' % max_documents)
+
+        # make sure that we have a fresh output dir:
+        if os.path.isdir(os.path.join(self.workspace, output_dir)):
+            shutil.rmtree(os.path.join(self.workspace, output_dir))
+        os.mkdir(os.path.join(self.workspace, output_dir))
+
+        for filepath in glob.glob(os.path.join(self.workspace, input_dir) + '/*.txt.out'):
+            if testfiles:
+                fp = os.path.basename(filepath).replace('.txt.out', '')
+                if fp not in testfiles:
+                    continue
+            # first pass: collect unambiguous mentions:
+            unambiguous_nes = set()
+            for line in codecs.open(filepath, 'r', 'utf8'):
+                try:
+                    comps = [c for c in line.strip().split('\t') if c]
+                    idx, token, lemma, pos, conf, ne = comps
+                    if ne.startswith('B-PER') and token[0].isupper() and len(token) > 3 and not token.endswith('.'):
+                        token = token.replace('_', ' ')
+                        if token in self.nes2wikilinks:
+                            if len(self.nes2wikilinks[token]) == 1:
+                                unambiguous_ne = tuple(self.nes2wikilinks[token])[0]
+                                unambiguous_nes.add(unambiguous_ne)
+                except ValueError:
+                    continue
+
+            new_filename = os.path.join(self.workspace, output_dir, os.path.basename(
+                filepath).replace('.txt.out', '.wikified'))
+            with codecs.open(new_filename, 'w', 'utf8') as wikified_file:
+                for line in codecs.open(filepath, 'r', 'utf8'):
+                    try:
+                        comps = [c for c in line.strip().split('\t') if c]
+                        idx, token, lemma, pos, conf, ne = comps
+                        if ne.startswith('B-PER') and token[0].isupper() and len(token) > 3 and not token.endswith('.'):
+                            token = token.replace('_', ' ')
+                            if token in self.nes2wikilinks:
+                                if len(self.nes2wikilinks[token]) == 1:
+                                    # only one option, so unambiguous:
+                                    unambiguous_ne = tuple(self.nes2wikilinks[token])[0]
+                                    comps = idx, token, lemma, pos, conf, ne, unambiguous_ne
+                                else:
+                                    # try to find anchor:
+                                    found = False
+                                    for option, _ in self.nes2wikilinks[token]:
+                                        if option in unambiguous_nes:
+                                            comps = idx, token, lemma, pos, conf, ne, option            
+                                            found = True
+                                            break
+                                    if not found:
+                                        comps = idx, token, lemma, pos, conf, ne, 'X'
+                            else:
+                                comps = idx, token, lemma, pos, conf, ne, 'X'    
+                        elif ne == 'O':
+                            comps = idx, token, lemma, pos, conf, ne, 'X'
+                        else:
+                            continue
+                    except ValueError:
+                        continue
+                    comps = list(comps)
+                    comps[-1] = comps[-1].replace(' ', '_')
+                    wikified_file.write('\t'.join(comps)+'\n')
+                    # update stats:
+            max_documents -= 1
+            if max_documents % 100 == 0:
+                logging.info('\t+ %d documents to go.' % max_documents)
+            if max_documents <= 0:
+                break
+
+    def evaluate_sample(self, corr_dir=None, pred_dir=None):
+        if not corr_dir:
+            corr_dir = self.workspace + '/corr_rnd_sample'
+        if not pred_dir:
+            pred_dir = self.workspace + '/wikified_periodicals'
+        true, pred = [], []
+        for filename in os.listdir(corr_dir):
+            if not filename.endswith('.wikified'):
+                continue
+            corr_lines = codecs.open(corr_dir+'/'+filename, 'r', 'utf8').readlines()
+            pred_lines = codecs.open(pred_dir+'/'+filename, 'r', 'utf8').readlines()
+            for corr_i, pred_i in zip(corr_lines, pred_lines):
+                corr_comps = [c for c in corr_i.strip().split('\t') if c]
+                pred_comps = [c for c in pred_i.strip().split('\t') if c]
+                # check whether properly aligned:
+                if corr_comps[1] == pred_comps[1]:
+                    true.append(corr_comps[-1])
+                    pred.append(pred_comps[-1])
+        f1 = f1_score(true, pred, average='macro')
+        print('F1:', f1)
+        return f1
+        
+
+
 
 class DbnlWikifier(Wikifier):
     def __init__(self, workspace=None):

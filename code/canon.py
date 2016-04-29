@@ -1,6 +1,7 @@
 from __future__ import print_function
 
-from recsys.evaluation.ranking import SpearmanRho, KendallTau, MeanReciprocalRank
+import numpy as np
+from scipy.stats import kendalltau
 
 def get_canon(canon='kantl'):
 
@@ -32,18 +33,21 @@ def kendall_tau(correct_canon, predicted_canon):
     """
     correct_ranking = [(w, float(idx+1)) for idx, w in enumerate(correct_canon) if w in predicted_canon]
     predicted_ranking = [(w, float(idx+1)) for idx, w in enumerate(predicted_canon) if w in correct_canon]
-    kendall = KendallTau()
-    kendall.load(correct_ranking, predicted_ranking)
-    return kendall.compute()
+    return kendalltau(correct_ranking, predicted_ranking)
 
 def mean_reciprocal_rank(correct_canon, predicted_canon):
-    mrr = MeanReciprocalRank()
+    _rr = []
     for q in predicted_canon:
-        mrr.load(correct_canon, q)
-    return mrr.compute()
+        try:
+            rank_query = correct_canon.index(q) + 1
+            rr = 1.0 / rank_query
+            _rr.append(rr)
+        except ValueError:
+            _rr.append(0.0)
+    return np.mean(_rr)
 
 
-
+"""
 if __name__ == '__main__':
     kantl = get_canon('kantl')
     mnl = get_canon('mnl')
@@ -53,3 +57,4 @@ if __name__ == '__main__':
     print('overlap kantl > mnl:', overlap_score(correct_canon=kantl, predicted_canon=mnl))
     print('tau kantl > mnl:', kendall_tau(correct_canon=kantl, predicted_canon=mnl))
     print('mrr kantl > mnl:', mean_reciprocal_rank(correct_canon=mnl, predicted_canon=kantl))
+"""

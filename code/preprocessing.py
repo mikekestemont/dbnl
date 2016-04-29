@@ -90,7 +90,7 @@ def parse_secondary_dbnl(max_documents=100):
     Only considers files with:
         - genre = 'sec - letterkunde'
         - subgenre = 'tijdschrift / jaarboek'
-        - 1945 > date < 2002
+        - date > 1945
     Additionally, only Dutch-language articles will be included.
     Only outputs articles which are recognized as 'nl'
     All individual 'chapters' (i.e. articles) are saved separately in ../workspace/periodicals
@@ -110,9 +110,9 @@ def parse_secondary_dbnl(max_documents=100):
         os.mkdir('../workspace')
     if not os.path.isdir('../figures'):
         os.mkdir('../figures')
-    if os.path.isdir('../workspace/periodicals'):
-        shutil.rmtree('../workspace/periodicals')
-    os.mkdir('../workspace/periodicals')
+    if os.path.isdir('../workspace/periodicals_tmp'):
+        shutil.rmtree('../workspace/periodicals_tmp')
+    os.mkdir('../workspace/periodicals_tmp')
 
     # iterate over the full texts which we have:
     for filepath in glob.glob('../texts/*.xml'):
@@ -131,7 +131,7 @@ def parse_secondary_dbnl(max_documents=100):
         # limited to post-war studies on literature in periodicals:
         if genre == 'sec - letterkunde' and \
             subgenre == 'tijdschrift / jaarboek' and \
-            date > 1945 and date < 2002 and date != "???":
+            date > 2001 and date != "???":
 
             print(">>>", title)
 
@@ -139,7 +139,7 @@ def parse_secondary_dbnl(max_documents=100):
             articles = xml_to_articles(filepath)
             if articles:
                 for idx, article in enumerate(articles):
-                    new_filepath = '../workspace/periodicals/'
+                    new_filepath = '../workspace/periodicals_tmp/'
                     new_filepath += text_id+"-"+str(idx+1)+'-'+str(date)+'.txt'
                     with codecs.open(new_filepath, 'w', 'utf-8') as f:
                         f.write(article)
@@ -173,12 +173,12 @@ def frog_articles():
     """
 
     # create/flush output dir if necessary:
-    if os.path.isdir('../workspace/frog_periodicals'):
-        shutil.rmtree('../workspace/frog_periodicals')
-    os.mkdir('../workspace/frog_periodicals')
+    if os.path.isdir('../workspace/frog_periodicals_tmp'):
+        shutil.rmtree('../workspace/frog_periodicals_tmp')
+    os.mkdir('../workspace/frog_periodicals_tmp')
 
-    output_dir = os.path.abspath('../workspace/frog_periodicals')
-    input_dir = os.path.abspath('../workspace/periodicals')
+    output_dir = os.path.abspath('../workspace/frog_periodicals_tmp')
+    input_dir = os.path.abspath('../workspace/periodicals_tmp')
 
     # create cmd line str for frog; don't do morphological analyses etc.
     frog_cmd_str = "/usr/bin/frog --testdir="+input_dir+" --outputdir="+output_dir+" --skip=acp"

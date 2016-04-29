@@ -4,15 +4,23 @@ import glob
 import codecs
 import re
 import os
-from collections import Counter, defaultdict
+import sys
+from collections import Counter, defaultdict, OrderedDict
 from itertools import combinations
-import cPickle as pickle
+from operator import itemgetter
+import pandas as pd
+import pickle
 
 import networkx as nx
+import numpy as np
+from scipy import stats
+
 from gensim.models import Word2Vec
 from gensim.models.wrappers import LdaMallet
 from gensim import corpora
 
+from ptm import AuthorTopicModel
+from ptm.utils import convert_cnt_to_list, get_top_words
 
 
 class DirectoryIterator:
@@ -33,48 +41,43 @@ class DirectoryIterator:
                 print('\t-', max_documents, 'to go')
             if max_documents <= 1:
                 break
-            word_cnt = self.max_words_per_doc
-            for line in codecs.open(filename, 'r', encoding='utf8'):
-                comps = line.strip().split('\t')
-                if comps:
-                    idx, token, lemma, pos, pos_conf, ner, wiki = comps
-                    if self.get == 'wiki':
-                        if wiki != 'X':
-                            words.append(wiki)
-                    elif self.get == 'w2v':
-                        if wiki != 'X':
-                            words.append('*'+wiki)
-                        elif pos.startswith(('N(', 'ADJ(', 'WW(')):
-                            words.append(token.lower())
-                    elif self.get in ('lda', 'lda_vocab') and pos.startswith(('N(', 'ADJ(', 'WW(')):
-                        words.append(token.lower())
-                word_cnt -= 1
-                if word_cnt <= 0:
-                    break
-            if self.get == 'lda':
-                yield self.lda_dict.doc2bow(words)
-            elif self.get == 'filename':
+            if self.get == 'filename':
                 yield filename
             else:
-                yield words
+                word_cnt = self.max_words_per_doc
+                for line in codecs.open(filename, 'r', encoding='utf8'):
+                    comps = line.strip().split('\t')
+                    if comps:
+                        idx, token, lemma, pos, pos_conf, ner, wiki = comps
+                        if self.get == 'wiki':
+                            if wiki != 'X':
+                                words.append(wiki)
+                        elif self.get == 'w2v':
+                            if wiki != 'X':
+                                words.append('*'+wiki)
+                            elif ner == 'O':# and pos.startswith(('N(', 'ADJ(', 'WW(')):
+                                words.append(token.lower())
+                        elif self.get in ('lda', 'lda_vocab') and pos.startswith(('N(', 'ADJ(')):
+                            words.append(token.lower())
+                    word_cnt -= 1
+                    if word_cnt <= 0:
+                        break
+                if self.get == 'lda':
+                    yield self.lda_dict.doc2bow(words)
+                else:
+                    yield words
 
-class Featurizer:
-    def __init__(self,
-                 incl_tf=True,
-                 incl_df=True,
-                 incl_doc_cooccur=True,
-                 incl_w2v=True,
-                 incl_temporal=True,
-                 incl_topic_model=True):
-
-        self.incl_tf = incl_tf
-        self.incl_df = incl_df
-        self.incl_doc_cooccur = incl_doc_cooccur
-        self.incl_w2v = incl_w2v
-        self.incl_topic_model = incl_topic_model
-        self.incl_temporal = incl_temporal
-
-    def featurize(self, max_documents=5000, max_words_per_doc=5000):
+def extract_features(max_documents=50000000,
+                     max_words_per_doc=50000000,
+                     incl_tf=True,
+                     incl_df=True,
+                     incl_graph=True,
+                     incl_w2v=True,
+                     incl_topic_model=True,
+                     incl_atm=True):
+    
+    ######### SIMPLE FREQUENCY MEASURES ######################################################
+    if incl_df or incl_tf or incl_graph:
         doc_cnt = max_documents
         # set containers:
         tf, df, network = Counter(), Counter(), nx.Graph()
@@ -108,34 +111,44 @@ class Featurizer:
                         network[ner1][ner2]['weight'] += 1
                     except KeyError:
                         network.add_edge(ner1, ner2, weight=1)
-
-        print(tf.most_common(30))
-        print(df.most_common(30))
+        
         # dump for reuse:
         pickle.dump(tf, open('../workspace/tf.m', 'wb'))
-        pickle.dump(tf, open('../workspace/df.m', 'wb'))
-        pickle.dump(tf, open('../workspace/ners_per_doc.m', 'wb'))
+        pickle.dump(df, open('../workspace/df.m', 'wb'))
+        pickle.dump(doc_ner_idx, open('../workspace/doc_ner_idx.m', 'wb'))
+        pickle.dump(network, open('../workspace/nx.m', 'wb'))
         
+        # scale network values:
+        max_weight = float(max([network[n1][n2]['weight']\
+                            for n1, n2 in network.edges_iter()]))
+        for n1, n2 in network.edges_iter():
+            network[n1][n2]['weight'] /= max_weight
+        nx.write_gexf(network,
+                      '../workspace/dbnl_network.gexf',
+                      prettyprint=True)
+    
+    ######### WORD2VEC MODEL ######################################################
+    if incl_w2v:
         # build w2v model:
         dir_w2v_iterator = DirectoryIterator(path_pattern='../workspace/wikified_periodicals/*.wikified',
                                          max_documents=max_documents,
                                          max_words_per_doc=max_words_per_doc,
                                          get='w2v')
-        w2v_model = Word2Vec(dir_w2v_iterator, window=15, min_count=1,
-                                         size=300, workers=1, negative=5)
-        w2v_model.init_sims(replace=True)
+        w2v_model = Word2Vec(dir_w2v_iterator, window=15, min_count=10,
+                                         size=150, workers=10, negative=5)
         w2v_model.init_sims(replace=True)
         w2v_model.save(os.path.abspath('../workspace/w2v_model.m'))
-        
 
+    ######### STANDARD TOPIC MODEL ######################################################
+    if incl_topic_model:
         # build vocab for lda:
         vocab_lda_iterator = DirectoryIterator(path_pattern='../workspace/wikified_periodicals/*.wikified',
                                          max_documents=max_documents,
                                          max_words_per_doc=max_words_per_doc,
                                          get='lda_vocab')
         lda_dict = corpora.Dictionary(vocab_lda_iterator)
-        lda_dict.filter_extremes(no_below=25, no_above=0.5, keep_n=10000)
-
+        lda_dict.filter_extremes(no_below=25, no_above=0.5, keep_n=5000)
+        
         # build lda model:
         dir_lda_iterator = DirectoryIterator(path_pattern='../workspace/wikified_periodicals/*.wikified',
                                          max_documents=max_documents,
@@ -146,13 +159,79 @@ class Featurizer:
         if not os.path.isdir(lda_workspace_path):
             os.mkdir(lda_workspace_path)
         mallet_path = '/home/mike/GitRepos/dbnl/code/mallet-2.0.8RC2/bin/mallet'
-        lda_model = LdaMallet(mallet_path, dir_lda_iterator, num_topics=100,
-                                       id2word=lda_dict, iterations=100,
+        lda_model = LdaMallet(mallet_path, dir_lda_iterator, num_topics=150,
+                                       id2word=lda_dict, iterations=1900,
                                        prefix=lda_workspace_path)
         lda_model.save('../workspace/lda_model.m')
 
-#tf = pickle.load(open('../workspace/tf.m', "rb"))
-#df = pickle.load(open('../workspace/df.m', "rb"))
-#w2v_model = Word2Vec.load(os.path.abspath('../workspace/w2v_model.m'))
+    ######### AUTHOR TOPIC MODEL ######################################################
+    if incl_atm:
+        # build vocab for lda:
+        vocab_lda_iterator = DirectoryIterator(path_pattern='../workspace/wikified_periodicals/*.wikified',
+                                         max_documents=max_documents,
+                                         max_words_per_doc=max_words_per_doc,
+                                         get='lda_vocab')
+        lda_dict = corpora.Dictionary(vocab_lda_iterator)
+        lda_dict.filter_extremes(no_below=25, no_above=0.5, keep_n=5000)
+        lda_dict.compactify()
+        atm_vocab = []
+        for i, w in lda_dict.items():
+            atm_vocab.append(w)
+        print(len(atm_vocab), 'vocab')
+        atm_vocab = tuple(atm_vocab)
+        corpus, doc_author = [], []
+        for filename in sorted(glob.glob('../workspace/wikified_periodicals/*.wikified')):
+            doc_words, auth_set = [], set()
+            max_documents -= 1
+            if max_documents % 100 == 0:
+                print('\t-', max_documents, 'to go')
+            if max_documents <= 1:
+                break
+            word_cnt = max_words_per_doc
+            for line in codecs.open(filename, 'r', encoding='utf8'):
+                comps = line.strip().split('\t')
+                if comps:
+                    idx, token, lemma, pos, pos_conf, ner, wiki = comps
+                    if wiki != 'X':
+                        auth_set.add(wiki)
+                    elif pos.startswith(('N(', 'ADJ(')):
+                        try:
+                            doc_words.append(atm_vocab.index(token.lower()))
+                        except:
+                            pass
+                word_cnt -= 1
+                if word_cnt <= 0:
+                    break
+            if auth_set and doc_words:
+                corpus.append(sorted(doc_words))
+                doc_author.append(sorted(list(auth_set)))
+        atm_author_idx = {}
+        for i1, authors in enumerate(doc_author):
+            for i2, auth in enumerate(authors):
+                if auth not in atm_author_idx:
+                    atm_author_idx[auth] = len(atm_author_idx)
+                doc_author[i1][i2] = atm_author_idx[auth]
+        n_topic = 30
+        atm_model = AuthorTopicModel(n_doc=len(corpus),
+                                     n_voca=len(atm_vocab),
+                                     n_topic=n_topic,
+                                     n_author=len(atm_author_idx))
+        atm_model.fit(corpus, doc_author, max_iter=10)
+        for k in range(n_topic):
+            top_words = get_top_words(atm_model.TW, atm_vocab, k, 10)
+            print('topic ', k , ','.join(top_words))
+        author_id = 7
+        fig = plt.figure(figsize=(12,6))
+        plt.bar(range(n_topic), atm_model.AT[author_id]/np.sum(atm_model.AT[author_id]))
+        #plt.title(author_idx[author_id])
+        plt.xticks(np.arange(n_topic)+0.5, ['\n'.join(get_top_words(atm_model.TW, atm_vocab, k, 10)) for k in range(n_topic)])
+        #plt.show()
+        plt.savefig('atm1.pdf')
+        pickle.dump(atm_vocab, open('../workspace/atm_vocab.m', 'wb'))
+        pickle.dump(atm_model, open('../workspace/atm_model.m', 'wb'))
+        pickle.dump(atm_author_idx, open('../workspace/atm_author_idx.m', 'wb'))
+
+        
+
         
 
